@@ -1,26 +1,18 @@
 
-name: Turath Developer - Full Android Build
+name: Build Bahith PDF Pro Max
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: turath-android-build
-  cancel-in-progress: true
+  push:
+    branches:
+      - main
 
 jobs:
   build:
-    name: Build Turath Developer APK
     runs-on: ubuntu-latest
-    timeout-minutes: 60
 
     steps:
-      - name: Checkout project
+      - name: Download project files
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -32,82 +24,32 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
-          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Check project generator
+      - name: Generate Android project
         run: |
-          test -f setup.sh || {
-            echo "ERROR: setup.sh is missing"
-            exit 1
-          }
-          chmod +x setup.sh
-
-      - name: Generate complete Android project
-        run: bash setup.sh
-
-      - name: Verify Android project
-        run: |
-          test -f settings.gradle.kts
-          test -f app/build.gradle.kts
-          test -f app/src/main/AndroidManifest.xml
-          test -f app/src/main/java/com/turath/app/MainActivity.kt
-
-      - name: Prepare OCR Arabic data
-        run: |
-          mkdir -p app/src/main/assets/tessdata
-          curl -L --fail --retry 3 \
-            -o app/src/main/assets/tessdata/ara.traineddata \
-            https://github.com/tesseract-ocr/tessdata_fast/raw/main/ara.traineddata
-          test -s app/src/main/assets/tessdata/ara.traineddata
-
-      - name: Accept Android licenses
-        run: |
-          yes | sdkmanager --licenses || true
+          chmod +x CREATE_PROJECT.sh
+          ./CREATE_PROJECT.sh
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-          cache-disabled: false
 
-      - name: Validate project configuration
-        run: gradle tasks --no-daemon
-
-      - name: Build debug APK
+      - name: Build APK
         run: |
-          gradle assembleDebug \
-            --no-daemon \
-            --stacktrace \
-            --warning-mode all
+          gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK
         run: |
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$APK"
-          ls -lh "$APK"
+          test -s app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload installable APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Turath-Developer-APK
+          name: Bahith-PDF-Pro-Max-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload build reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Turath-Build-Reports
-          path: |
-            app/build/reports/
-            app/build/outputs/logs/
-          if-no-files-found: ignore
-          retention-days: 7
-defaults:
-  
+          
