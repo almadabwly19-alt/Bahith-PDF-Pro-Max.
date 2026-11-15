@@ -1,5 +1,5 @@
 
-name: Build Bahith PDF Pro Max
+name: Build Android APK
 
 on:
   workflow_dispatch:
@@ -8,14 +8,14 @@ on:
       - main
 
 jobs:
-  build:
+  android-build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download project files
+      - name: Checkout project
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -24,29 +24,25 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK
+      - name: Install SDK
         run: |
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Generate Android project
+      - name: Generate project files
         run: |
           chmod +x CREATE_PROJECT.sh
           ./CREATE_PROJECT.sh
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Build APK
+      - name: Build Android application
         run: |
           gradle :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK
+      - name: Confirm APK
         run: |
+          ls -lh app/build/outputs/apk/debug/
           test -s app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload APK
+      - name: Publish installable APK
         uses: actions/upload-artifact@v4
         with:
           name: Bahith-PDF-Pro-Max-APK
