@@ -3,16 +3,19 @@ name: Build Bahith PDF Pro Max
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
     paths:
-      - 'CREATE_PROJECT.sh'
-      - 'android.yml'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  build-android-apk:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -25,27 +28,283 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Generate Android project from the uploaded script
         run: |
-          chmod +x CREATE_PROJECT.sh
-          ./CREATE_PROJECT.sh
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Generate Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/java/com/bahith/pdf app/src/main/res/values
+
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "BahithPDFProMax"
+          include(":app")
+          EOF
+
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          org.gradle.parallel=true
+          EOF
+
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.bahith.pdf"
+              compileSdk = 35
+              defaultConfig {
+                  applicationId = "com.bahith.pdf"
+                  minSdk = 23
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:allowBackup="true"
+                  android:label="باحث PDF Pro Max"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#D6A84F</item>
+                  <item name="android:statusBarColor">#071A33</item>
+                  <item name="android:navigationBarColor">#071A33</item>
+                  <item name="android:windowLightStatusBar">false</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/java/com/bahith/pdf/MainActivity.kt <<'EOF'
+          package com.bahith.pdf
+
+          import android.app.Activity
+          import android.content.Intent
+          import android.graphics.Bitmap
+          import android.graphics.Color
+          import android.graphics.pdf.PdfRenderer
+          import android.net.Uri
+          import android.os.Bundle
+          import android.os.ParcelFileDescriptor
+          import android.view.Gravity
+          import android.view.ViewGroup
+          import android.widget.Button
+          import android.widget.ImageView
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import android.widget.Toast
+
+          class MainActivity : Activity() {
+              private val navy = Color.rgb(7, 26, 51)
+              private val gold = Color.rgb(214, 168, 79)
+              private var descriptor: ParcelFileDescriptor? = null
+              private var renderer: PdfRenderer? = null
+              private var currentPage = 0
+              private lateinit var pageImage: ImageView
+              private lateinit var pageLabel: TextView
+              private lateinit var previousButton: Button
+              private lateinit var nextButton: Button
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  createInterface()
+              }
+
+              private fun createInterface() {
+                  val root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      gravity = Gravity.CENTER_HORIZONTAL
+                      setPadding(18, 20, 18, 18)
+                      setBackgroundColor(navy)
+                      layoutDirection = LinearLayout.LAYOUT_DIRECTION_RTL
+                  }
+                  val heading = TextView(this).apply {
+                      text = "باحث PDF Pro Max"
+                      textSize = 25f
+                      setTextColor(gold)
+                      gravity = Gravity.CENTER
+                      setPadding(8, 12, 8, 8)
+                  }
+                  root.addView(heading, LinearLayout.LayoutParams(-1, -2))
+
+                  val description = TextView(this).apply {
+                      text = "قارئ ملفات PDF"
+                      textSize = 16f
+                      setTextColor(Color.WHITE)
+                      gravity = Gravity.CENTER
+                      setPadding(8, 0, 8, 12)
+                  }
+                  root.addView(description, LinearLayout.LayoutParams(-1, -2))
+
+                  val openButton = Button(this).apply {
+                      text = "اختيار ملف PDF"
+                      setOnClickListener { selectPdf() }
+                  }
+                  root.addView(openButton, LinearLayout.LayoutParams(-1, -2))
+
+                  pageLabel = TextView(this).apply {
+                      text = "اختر ملف PDF للبدء"
+                      textSize = 14f
+                      setTextColor(gold)
+                      gravity = Gravity.CENTER
+                      setPadding(8, 10, 8, 10)
+                  }
+                  root.addView(pageLabel, LinearLayout.LayoutParams(-1, -2))
+
+                  pageImage = ImageView(this).apply {
+                      adjustViewBounds = true
+                      scaleType = ImageView.ScaleType.FIT_CENTER
+                      setBackgroundColor(Color.WHITE)
+                      setPadding(3, 3, 3, 3)
+                  }
+                  root.addView(pageImage, LinearLayout.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+                  ))
+
+                  val navigation = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER
+                      layoutDirection = LinearLayout.LAYOUT_DIRECTION_LTR
+                  }
+                  previousButton = Button(this).apply {
+                      text = "السابق"
+                      isEnabled = false
+                      setOnClickListener { renderPage(currentPage - 1) }
+                  }
+                  nextButton = Button(this).apply {
+                      text = "التالي"
+                      isEnabled = false
+                      setOnClickListener { renderPage(currentPage + 1) }
+                  }
+                  navigation.addView(previousButton, LinearLayout.LayoutParams(0, -2, 1f))
+                  navigation.addView(nextButton, LinearLayout.LayoutParams(0, -2, 1f))
+                  root.addView(navigation, LinearLayout.LayoutParams(-1, -2))
+                  setContentView(root)
+              }
+
+              private fun selectPdf() {
+                  val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                      addCategory(Intent.CATEGORY_OPENABLE)
+                      type = "application/pdf"
+                  }
+                  startActivityForResult(intent, PICK_PDF)
+              }
+
+              @Deprecated("Retained for compatibility")
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  super.onActivityResult(requestCode, resultCode, data)
+                  if (requestCode == PICK_PDF && resultCode == RESULT_OK) {
+                      val uri: Uri = data?.data ?: return
+                      try {
+                          openPdf(uri)
+                      } catch (error: Exception) {
+                          Toast.makeText(this, "تعذر فتح الملف: ${error.message}", Toast.LENGTH_LONG).show()
+                      }
+                  }
+              }
+
+              private fun openPdf(uri: Uri) {
+                  closePdf()
+                  descriptor = contentResolver.openFileDescriptor(uri, "r")
+                      ?: throw IllegalStateException("تعذر الوصول إلى الملف")
+                  renderer = PdfRenderer(descriptor!!)
+                  renderPage(0)
+              }
+
+              private fun renderPage(index: Int) {
+                  val pdf = renderer ?: return
+                  if (index !in 0 until pdf.pageCount) return
+                  val page = pdf.openPage(index)
+                  val width = (resources.displayMetrics.widthPixels * 0.88f).toInt()
+                  val height = (width.toFloat() * page.height / page.width).toInt().coerceAtLeast(1)
+                  val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                  bitmap.eraseColor(Color.WHITE)
+                  page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                  page.close()
+                  pageImage.setImageBitmap(bitmap)
+                  currentPage = index
+                  pageLabel.text = "الصفحة ${index + 1} من ${pdf.pageCount}"
+                  previousButton.isEnabled = index > 0
+                  nextButton.isEnabled = index < pdf.pageCount - 1
+              }
+
+              private fun closePdf() {
+                  renderer?.close()
+                  renderer = null
+                  descriptor?.close()
+                  descriptor = null
+              }
+
+              override fun onDestroy() {
+                  closePdf()
+                  super.onDestroy()
+              }
+
+              companion object { private const val PICK_PDF = 7101 }
+          }
+          EOF
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Build installable APK
+      - name: Build Android APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK exists
+      - name: Verify APK
         run: |
           test -s app/build/outputs/apk/debug/app-debug.apk
           ls -lh app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload APK
+      - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
           name: Bahith-PDF-Pro-Max-APK
