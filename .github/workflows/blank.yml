@@ -1,36 +1,113 @@
-# This is a basic workflow to help you get started with Actions
 
-name: CI
+name: Turath Developer - Full Android Build
 
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
+    branches: [ main ]
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+permissions:
+  contents: read
+
+concurrency:
+  group: turath-android-build
+  cancel-in-progress: true
+
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
+    name: Build Turath Developer APK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - name: Checkout project
+        uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
+          yes | sdkmanager --licenses || true
+
+      - name: Check project generator
+        run: |
+          test -f setup.sh || {
+            echo "ERROR: setup.sh is missing"
+            exit 1
+          }
+          chmod +x setup.sh
+
+      - name: Generate complete Android project
+        run: bash setup.sh
+
+      - name: Verify Android project
+        run: |
+          test -f settings.gradle.kts
+          test -f app/build.gradle.kts
+          test -f app/src/main/AndroidManifest.xml
+          test -f app/src/main/java/com/turath/app/MainActivity.kt
+
+      - name: Prepare OCR Arabic data
+        run: |
+          mkdir -p app/src/main/assets/tessdata
+          curl -L --fail --retry 3 \
+            -o app/src/main/assets/tessdata/ara.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/ara.traineddata
+          test -s app/src/main/assets/tessdata/ara.traineddata
+
+      - name: Accept Android licenses
+        run: |
+          yes | sdkmanager --licenses || true
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+          cache-disabled: false
+
+      - name: Validate project configuration
+        run: gradle tasks --no-daemon
+
+      - name: Build debug APK
+        run: |
+          gradle assembleDebug \
+            --no-daemon \
+            --stacktrace \
+            --warning-mode all
+
+      - name: Verify APK
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          ls -lh "$APK"
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Turath-Developer-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Turath-Build-Reports
+          path: |
+            app/build/reports/
+            app/build/outputs/logs/
+          if-no-files-found: ignore
+          retention-days: 7
+defaults:
+  
