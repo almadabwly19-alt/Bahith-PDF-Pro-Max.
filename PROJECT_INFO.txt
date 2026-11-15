@@ -1,0 +1,6 @@
+PACKAGE: Bahith PDF Pro Max
+PACKAGE FORMAT: five flat files, no nested folders in the ZIP
+ANDROID APPLICATION ID: com.bahith.pdf
+VERSION: 1.0
+BUILD OUTPUT: app/build/outputs/apk/debug/app-debug.apk
+BUILD METHOD: GitHub Actions + Gradle
